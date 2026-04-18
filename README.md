@@ -5,7 +5,7 @@ O que fazer:
 
 Adicionar argparse para receber -i (interface), -c (count), --proto, --ip, --mac, -f (filtro BPF)
 Aplicar os filtros dentro do processar_pacote
-
+FEITO 168
 
 Passo 2 — Mostrar a interface no output
 O enunciado pede que o output inclua a interface onde o pacote foi capturado. Agora não mostras isso.
