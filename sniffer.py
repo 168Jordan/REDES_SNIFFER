@@ -1,11 +1,46 @@
 from scapy.all import sniff, Ether, ARP, IP, ICMP, TCP, UDP, IPv6
 from datetime import datetime
+import argparse
+
+parser = argparse.ArgumentParser(description="Packet Sniffer RC-TP2")
+parser.add_argument("-i", "--interface", default="eth0", help="Interface de rede (ex: eth0, wlan0)")
+parser.add_argument("-c", "--count", type=int, default=0, help="Número de pacotes a capturar (0 = infinito)")
+parser.add_argument("-f", "--filter", default="", help="Filtro BPF (ex: 'tcp', 'host 192.168.1.1')")
+parser.add_argument("--proto", default="", help="Filtrar por protocolo (ARP, ICMP, TCP, UDP, DNS, NTP)")
+parser.add_argument("--ip", default="", help="Filtrar por IP (origem ou destino)")
+parser.add_argument("--mac", default="", help="Filtrar por MAC (origem ou destino)")
+args = parser.parse_args()
+
+def aplicar_filtros(pacote):
+    #filtro por protocolo
+    if args.proto:
+        proto = args.proto.upper()
+        if proto == "ARP" and not pacote.haslayer(ARP): return False
+        if proto == "ICMP" and not pacote.haslayer(ICMP): return False
+        if proto == "TCP" and not pacote.haslayer(TCP): return False
+        if proto == "UDP" and not pacote.haslayer(UDP): return False
+        if proto == "DNS" and not (pacote.haslayer(UDP) and (pacote[UDP].sport == 53 or pacote[UDP].dport == 53)): return False
+        if proto == "NTP" and not (pacote.haslayer(UDP) and (pacote[UDP].sport == 123 or pacote[UDP].dport == 123)): return False
+
+
+    #filtro por IP
+    if args.ip:
+        if not pacote.haslayer(IP): return False
+        if pacote[IP].src != args.ip and pacote[IP].dst != args.ip: return False
+
+
+    #filtro por MAC
+    if args.mac:
+        if not pacote.haslayer(Ether): return False
+        if pacote[Ether].src != args.mac and pacote[Ether].dst != args.mac: return False
+
+    return True
+
 
 def processar_pacote(pacote):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     tamanho = len(pacote)
 
-    # Camada Ethernet
     if pacote.haslayer(Ether):
         mac_src = pacote[Ether].src
         mac_dst = pacote[Ether].dst
@@ -40,19 +75,15 @@ def processar_pacote(pacote):
             udp = pacote[UDP]
             sport = udp.sport
             dport = udp.dport
-            
+
             if sport == 123 or dport == 123:
-                resumo = f"NTP: {ip_src} -> {ip_dst}"
-
+                resumo = f"NTP: {ip_src} → {ip_dst}"
             elif sport == 53 or dport == 53:
-                resumo = f"DNS: {ip_src} -> {ip_dst}"
-
+                resumo = f"DNS: {ip_src} → {ip_dst}"
             elif sport == 5353 or dport == 5353:
-                resumo = f"mDNS: {ip_src} -> {ip_dst}"
-
-            elif sport == 67 or dport == 67 or sport == 68 or dport == 68:
-                resumo = f"DHCP: {ip_src} -> {ip_dst}"
-
+                resumo = f"mDNS: {ip_src} → {ip_dst}"
+            elif sport in (67, 68) or dport in (67, 68):
+                resumo = f"DHCP: {ip_src} → {ip_dst}"
             else:
                 resumo = f"UDP: {ip_src}:{sport} → {ip_dst}:{dport}"
 
@@ -69,4 +100,9 @@ def processar_pacote(pacote):
     else:
         print(f"[{timestamp}] {tamanho}B | {mac_src} → {mac_dst} | Protocolo desconhecido")
 
-sniff(iface="eth0", prn=processar_pacote, count=10)
+def processar_com_filtro(pacote):
+    if aplicar_filtros(pacote):
+        processar_pacote(pacote)
+
+sniff(iface=args.interface, prn=processar_com_filtro, count=args.count, filter=args.filter)
+
