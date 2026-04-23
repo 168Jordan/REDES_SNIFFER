@@ -12,7 +12,7 @@ O enunciado pede que o output inclua a interface onde o pacote foi capturado. Ag
 O que fazer:
 
 Adicionar o nome da interface em cada linha impressa
-
+FEITO 168
 
 Passo 3 — Modo log (ficheiro)
 O enunciado pede modo live (consola) e modo log (ficheiro), podendo estar os dois ativos ao mesmo tempo.

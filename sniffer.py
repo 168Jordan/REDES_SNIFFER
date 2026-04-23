@@ -105,4 +105,3 @@ def processar_com_filtro(pacote):
         processar_pacote(pacote)
 
 sniff(iface=args.interface, prn=processar_com_filtro, count=args.count, filter=args.filter)
-
