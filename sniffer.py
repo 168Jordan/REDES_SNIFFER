@@ -1,6 +1,7 @@
 from scapy.all import sniff, Ether, ARP, IP, ICMP, TCP, UDP, IPv6
 from datetime import datetime
 import argparse
+import csv
 
 parser = argparse.ArgumentParser(description="Packet Sniffer RC-TP2")
 parser.add_argument("-i", "--interface", default="eth0", help="Interface de rede (ex: eth0, wlan0)")
@@ -9,7 +10,16 @@ parser.add_argument("-f", "--filter", default="", help="Filtro BPF (ex: 'tcp', '
 parser.add_argument("--proto", default="", help="Filtrar por protocolo (ARP, ICMP, TCP, UDP, DNS, NTP)")
 parser.add_argument("--ip", default="", help="Filtrar por IP (origem ou destino)")
 parser.add_argument("--mac", default="", help="Filtrar por MAC (origem ou destino)")
+parser.add_argument("--log", default="", help="Arquivo CSV para salvar os pacotes capturados")
 args = parser.parse_args()
+
+log_file = None
+csv_writer = None
+if args.log:
+    log_file = open(args.log, "w", newline="", encoding="utf-8")
+    csv_writer = csv.writer(log_file)
+    csv_writer.writerow(["timestamp", "interface", "tamanho", "mac_src", "mac_dst", "resumo"])
+
 
 def aplicar_filtros(pacote):
     #filtro por protocolo
@@ -96,12 +106,22 @@ def processar_pacote(pacote):
         ip6 = pacote[IPv6]
         resumo = f"IPv6: {ip6.src} → {ip6.dst}"
         print(f"[{timestamp}] [{args.interface}] {tamanho}B | {mac_src} → {mac_dst} | {resumo}")
-
+    
     else:
         print(f"[{timestamp}] [{args.interface}] {tamanho}B | {mac_src} → {mac_dst} | Protocolo desconhecido")
+
+    if csv_writer:
+        csv_writer.writerow([timestamp, args.interface, tamanho, mac_src, mac_dst, resumo])
 
 def processar_com_filtro(pacote):
     if aplicar_filtros(pacote):
         processar_pacote(pacote)
 
 sniff(iface=args.interface, prn=processar_com_filtro, count=args.count, filter=args.filter)
+
+try:
+    sniff(iface=args.interface, prn=processar_com_filtro, count=args.count, filter=args.filter)
+finally:
+    if log_file:
+        log_file.close()
+        print(f"captura salva em {args.log}")
