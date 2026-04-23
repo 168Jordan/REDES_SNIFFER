@@ -54,7 +54,7 @@ def processar_pacote(pacote):
             resumo = f"ARP Request: Quem tem {arp.pdst}? Diz a {arp.psrc}"
         else:
             resumo = f"ARP Reply: {arp.psrc} está em {arp.hwsrc}"
-        print(f"[{timestamp}] {tamanho}B | {mac_src} → {mac_dst} | {resumo}")
+        print(f"[{timestamp}] [{args.interface}] {tamanho}B | {mac_src} → {mac_dst} | {resumo}")
 
     # IPv4
     elif pacote.haslayer(IP):
@@ -90,15 +90,15 @@ def processar_pacote(pacote):
         else:
             resumo = f"IPv4: {ip_src} → {ip_dst} (protocolo desconhecido)"
 
-        print(f"[{timestamp}] {tamanho}B | {mac_src} → {mac_dst} | {resumo}")
+        print(f"[{timestamp}] [{args.interface}] {tamanho}B | {mac_src} → {mac_dst} | {resumo}")
 
     elif pacote.haslayer(IPv6):
         ip6 = pacote[IPv6]
         resumo = f"IPv6: {ip6.src} → {ip6.dst}"
-        print(f"[{timestamp}] {tamanho}B | {mac_src} → {mac_dst} | {resumo}")
+        print(f"[{timestamp}] [{args.interface}] {tamanho}B | {mac_src} → {mac_dst} | {resumo}")
 
     else:
-        print(f"[{timestamp}] {tamanho}B | {mac_src} → {mac_dst} | Protocolo desconhecido")
+        print(f"[{timestamp}] [{args.interface}] {tamanho}B | {mac_src} → {mac_dst} | Protocolo desconhecido")
 
 def processar_com_filtro(pacote):
     if aplicar_filtros(pacote):
