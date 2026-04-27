@@ -5,7 +5,7 @@ import csv
 
 
 parser = argparse.ArgumentParser(description="Packet Sniffer RC-TP2")
-parser.add_argument("-i", "--interface", default="eth0", help="Interface de rede (ex: eth0, wlan0)")
+parser.add_argument("-i", "--interface", default="wlp2s0", help="Interface de rede (ex: eth0, wlan0)")
 parser.add_argument("-c", "--count", type=int, default=0, help="Número de pacotes a capturar (0 = infinito)")
 parser.add_argument("-f", "--filter", default="", help="Filtro BPF (ex: 'tcp', 'host 192.168.1.1')")
 parser.add_argument("--proto", default="", help="Filtrar por protocolo (ARP, ICMP, TCP, UDP, DNS, NTP)")
@@ -141,8 +141,6 @@ def processar_pacote(pacote):
 def processar_com_filtro(pacote):
     if aplicar_filtros(pacote):
         processar_pacote(pacote)
-
-sniff(iface=args.interface, prn=processar_com_filtro, count=args.count, filter=args.filter)
 
 try:
     sniff(iface=args.interface, prn=processar_com_filtro, count=args.count, filter=args.filter)
