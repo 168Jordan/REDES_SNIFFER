@@ -79,7 +79,17 @@ def processar_pacote(pacote):
         elif pacote.haslayer(TCP):
             tcp = pacote[TCP]
             flags = tcp.sprintf("%flags%")
-            resumo = f"TCP: {ip_src}:{tcp.sport} → {ip_dst}:{tcp.dport} [{flags}]"
+            if "S" in flags and "A" not in flags:
+                descricao = "SYN - início handshake"
+            elif "S" in flags and "A" in flags:
+                descricao = "SYN-ACK - resposta handshake"
+            elif "F" in flags:
+                descricao = "FIN - início fecho"
+            elif "R" in flags:
+                descricao = "RST - reset"
+            else:
+                descricao = flags
+            resumo = f"TCP: {ip_src}:{tcp.sport} → {ip_dst}:{tcp.dport} [{descricao}]"
 
         elif pacote.haslayer(UDP):
             udp = pacote[UDP]
@@ -89,11 +99,25 @@ def processar_pacote(pacote):
             if sport == 123 or dport == 123:
                 resumo = f"NTP: {ip_src} → {ip_dst}"
             elif sport == 53 or dport == 53:
-                resumo = f"DNS: {ip_src} → {ip_dst}"
+                from scapy.layers.dns import DNS
+                if pacote.haslayer(DNS) and pacote[DNS].qd:
+                    dominio = pacote[DNS].qd.qname.decode().rstrip(".")
+                    tipo = "Query" if pacote[DNS].qr == 0 else "Reply"
+                    resumo = f"DNS {tipo}: {ip_src} → {ip_dst} | {dominio}"
+                else:
+                    resumo = f"DNS: {ip_src} → {ip_dst}"
             elif sport == 5353 or dport == 5353:
                 resumo = f"mDNS: {ip_src} → {ip_dst}"
             elif sport in (67, 68) or dport in (67, 68):
-                resumo = f"DHCP: {ip_src} → {ip_dst}"
+                from scapy.layers.dhcp import DHCP
+                tipos = {1: "Discover", 2: "Offer", 3: "Request", 5: "ACK", 6: "NAK"}
+                tipo_dhcp = "?"
+                if pacote.haslayer(DHCP):
+                    for opt in pacote[DHCP].options:
+                        if isinstance(opt, tuple) and opt[0] == "message-type":
+                            tipo_dhcp = tipos.get(opt[1], str(opt[1]))
+                            break
+                resumo = f"DHCP {tipo_dhcp}: {ip_src} → {ip_dst}"
             else:
                 resumo = f"UDP: {ip_src}:{sport} → {ip_dst}:{dport}"
 
