@@ -3,6 +3,7 @@ from datetime import datetime
 import argparse
 import csv
 
+
 parser = argparse.ArgumentParser(description="Packet Sniffer RC-TP2")
 parser.add_argument("-i", "--interface", default="eth0", help="Interface de rede (ex: eth0, wlan0)")
 parser.add_argument("-c", "--count", type=int, default=0, help="Número de pacotes a capturar (0 = infinito)")
