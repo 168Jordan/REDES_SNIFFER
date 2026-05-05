@@ -102,5 +102,6 @@ sudo python3 sniffer.py -i wlp2s0 -f "tcp port 80 or tcp port 443" -c 100
 
 # Descobrir dispositivos a falar em Multicast DNS na rede doméstica
 sudo python3 sniffer.py -i wlp2s0 --proto MDNS
-Pressiona Ctrl+C para parar a captura. O sniffer irá imprimir um resumo estatístico final no ecrã e guardar o ficheiro CSV (se solicitado).
 ```
+
+**Nota:** Pressiona Ctrl+C para parar a captura. O sniffer irá intercetar o sinal, imprimir um resumo estatístico final ordenado no ecrã e gravar o ficheiro de log de forma segura.
