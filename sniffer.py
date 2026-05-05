@@ -1,219 +1,293 @@
-from scapy.all import sniff, Ether, ARP, IP, ICMP, TCP, UDP, IPv6, get_if_list
-from scapy.layers.dns import DNS
-from scapy.layers.dhcp import DHCP
-from collections import Counter
+from scapy.all import (
+    sniff, Ether, ARP, IP, IPv6, ICMP, TCP, UDP,
+    Raw, DNS, DNSQR, DNSRR, BOOTP, DHCP, get_if_list
+)
 from datetime import datetime
+from collections import Counter
 import argparse
 import csv
-import sys
+import json
+import os
+
+
+# Cores ANSI para diferentes protocolos
+CORES_PROTOCOLO = {
+    "ARP": "\033[96m",      # Ciano
+    "IPv4": "\033[92m",     # Verde claro
+    "IPv6": "\033[95m",     # Magenta
+    "ICMP": "\033[93m",     # Amarelo
+    "TCP": "\033[94m",      # Azul
+    "UDP": "\033[92m",      # Verde claro
+    "DNS": "\033[35m",      # Magenta
+    "DHCP": "\033[33m",     # Laranja
+    "NTP": "\033[36m",      # Ciano
+    "HTTP": "\033[92m",     # Verde claro
+    "HTTPS": "\033[34m",    # Azul escuro
+    "FTP": "\033[91m",      # Vermelho claro
+    "mDNS": "\033[95m",     # Magenta
+    "Desconhecido": "\033[37m"  # Branco
+}
+
+COR_RESET = "\033[0m"
 
 
 parser = argparse.ArgumentParser(description="Packet Sniffer RC-TP2")
 
-CORES = {
-    "TCP": "\033[94m",
-    "UDP": "\033[92m",
-    "DNS": "\033[93m",
-    "mDNS": "\033[96m",
-    "HTTP": "\033[95m",
-    "HTTPS": "\033[35m",
-    "FTP": "\033[91m",
-    "ARP": "\033[33m",
-    "ICMP": "\033[31m",
-    "NTP": "\033[36m",
-    "DHCP": "\033[34m",
-    "IPv4": "\033[37m",
-    "IPv6": "\033[90m",
-    "?": "\033[2m",
-}
+parser.add_argument("-i", "--interface", default="eth0",
+                    help="Interface de rede (ex: eth0, wlo1, wlan0)")
 
-RESET = "\033[0m"
-BOLD = "\033[1m"
+parser.add_argument("-c", "--count", type=int, default=0,
+                    help="Número de pacotes a capturar (0 = infinito)")
 
-parser.add_argument("-i", "--interface", default="eth0", help="Interface de rede")
-parser.add_argument("-c", "--count", type=int, default=0, help="Número de pacotes a capturar")
-parser.add_argument("-f", "--filter", default="", help="Filtro BPF")
-parser.add_argument("--proto", default="", help="Filtrar por protocolo")
-parser.add_argument("--ip", default="", help="Filtrar por IP")
-parser.add_argument("--mac", default="", help="Filtrar por MAC")
-parser.add_argument("--log", default="", help="Arquivo CSV para salvar os pacotes capturados")
+parser.add_argument("-f", "--filter", default="",
+                    help="Filtro BPF (ex: 'tcp', 'host 192.168.1.1', 'port 53')")
+
+parser.add_argument("--proto", default="",
+                    help="Filtrar por protocolo: ARP, IPv4, IPv6, ICMP, TCP, UDP, DNS, DHCP, NTP, HTTP, HTTPS, FTP")
+
+parser.add_argument("--ip", default="",
+                    help="Filtrar por IP de origem ou destino")
+
+parser.add_argument("--mac", default="",
+                    help="Filtrar por MAC de origem ou destino")
+
+parser.add_argument("--log", default="",
+                    help="Guardar captura em ficheiro: .txt, .csv ou .json")
+
+parser.add_argument("--no-live", action="store_true",
+                    help="Não imprimir pacotes na consola, apenas guardar em log")
 
 args = parser.parse_args()
 
 
-PROTOCOLOS_DISPONIVEIS = [
-    "TODOS",
-    "ARP",
-    "IPv4",
-    "IPv6",
-    "ICMP",
-    "TCP",
-    "UDP",
-    "DNS",
-    "mDNS",
-    "NTP",
-    "DHCP"
-]
+def perguntar_configuracao():
+    print("\n========== CONFIGURAÇÃO DO SNIFFER ==========")
 
-
-pacotes_guardados = []
-estatisticas = Counter()
-total_pacotes = 0
-hora_inicio = datetime.now()
-
-
-def escolher_interface():
     interfaces = get_if_list()
 
-    print("\n=== INTERFACES DISPONÍVEIS ===")
-    for i, iface in enumerate(interfaces, start=1):
-        print(f"{i}. {iface}")
+    print("\nInterfaces disponíveis:")
+    for i, iface in enumerate(interfaces):
+        print(f"{i} - {iface}")
 
-    while True:
-        escolha = input("\nEscolhe a interface pelo número: ")
+    escolha = input("\nEscolhe a interface pelo número: ").strip()
 
-        if escolha.isdigit():
-            escolha = int(escolha)
-            if 1 <= escolha <= len(interfaces):
-                return interfaces[escolha - 1]
-
-        print("Opção inválida. Tenta outra vez.")
-
-
-def escolher_protocolo():
-    print("\n=== PROTOCOLOS DISPONÍVEIS PARA FILTRAR ===")
-    for i, proto in enumerate(PROTOCOLOS_DISPONIVEIS, start=1):
-        print(f"{i}. {proto}")
-
-    while True:
-        escolha = input("\nEscolhe o protocolo pelo número: ")
-
-        if escolha.isdigit():
-            escolha = int(escolha)
-            if 1 <= escolha <= len(PROTOCOLOS_DISPONIVEIS):
-                proto = PROTOCOLOS_DISPONIVEIS[escolha - 1]
-
-                if proto == "TODOS":
-                    return ""
-
-                return proto.upper()
-
-        print("Opção inválida. Tenta outra vez.")
-
-
-def guardar_csv(nome_ficheiro):
-    if not nome_ficheiro.endswith(".csv"):
-        nome_ficheiro += ".csv"
-
-    with open(nome_ficheiro, "w", newline="", encoding="utf-8") as ficheiro:
-        writer = csv.writer(ficheiro)
-
-        writer.writerow([
-            "timestamp",
-            "interface",
-            "tamanho",
-            "protocolo",
-            "mac_src",
-            "mac_dst",
-            "ip_src",
-            "ip_dst",
-            "resumo"
-        ])
-
-        writer.writerows(pacotes_guardados)
-
-    print(f"\nCaptura guardada em: {nome_ficheiro}")
-
-
-if len(sys.argv) == 1:
-    args.interface = escolher_interface()
-    args.proto = escolher_protocolo()
-
-    print("\nConfiguração escolhida:")
-    print(f"Interface : {args.interface}")
-    print(f"Protocolo : {args.proto if args.proto else 'TODOS'}")
-    print()
-
-
-def aplicar_filtros(pacote):
-    if args.proto:
-        proto = args.proto.upper()
-
-        if proto == "ARP" and not pacote.haslayer(ARP):
-            return False
-
-        if proto == "IPV4" and not pacote.haslayer(IP):
-            return False
-
-        if proto == "IPV6" and not pacote.haslayer(IPv6):
-            return False
-
-        if proto == "ICMP" and not pacote.haslayer(ICMP):
-            return False
-
-        if proto == "TCP" and not pacote.haslayer(TCP):
-            return False
-
-        if proto == "UDP" and not pacote.haslayer(UDP):
-            return False
-
-        if proto == "DNS" and not (
-            pacote.haslayer(UDP)
-            and (pacote[UDP].sport == 53 or pacote[UDP].dport == 53)
-        ):
-            return False
-
-        if proto == "NTP" and not (
-            pacote.haslayer(UDP)
-            and (pacote[UDP].sport == 123 or pacote[UDP].dport == 123)
-        ):
-            return False
-
-        if proto == "DHCP" and not (
-            pacote.haslayer(UDP)
-            and (
-                pacote[UDP].sport in (67, 68)
-                or pacote[UDP].dport in (67, 68)
-            )
-        ):
-            return False
-
-        if proto == "MDNS" and not (
-            pacote.haslayer(UDP)
-            and (pacote[UDP].sport == 5353 or pacote[UDP].dport == 5353)
-        ):
-            return False
-
-    if args.ip:
-        if not pacote.haslayer(IP):
-            return False
-
-        if pacote[IP].src != args.ip and pacote[IP].dst != args.ip:
-            return False
-
-    if args.mac:
-        if not pacote.haslayer(Ether):
-            return False
-
-        if pacote[Ether].src != args.mac and pacote[Ether].dst != args.mac:
-            return False
-
-    return True
-
-
-def processar_pacote(pacote):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    tamanho = len(pacote)
-
-    protocolo = "?"
-    ip_src = ip_dst = "-"
-    resumo = "Protocolo desconhecido"
-
-    if pacote.haslayer(Ether):
-        mac_src = pacote[Ether].src
-        mac_dst = pacote[Ether].dst
+    if escolha.isdigit() and int(escolha) < len(interfaces):
+        args.interface = interfaces[int(escolha)]
     else:
-        mac_src = mac_dst = "?"
+        print("Escolha inválida. A usar a primeira interface disponível.")
+        args.interface = interfaces[0]
+
+    count = input("\nQuantos pacotes queres capturar? ").strip()
+    if count.isdigit():
+        args.count = int(count)
+    else:
+        args.count = 0
+
+    proto = input(
+        "\nProtocolo a filtrar (ARP, IPv4, IPv6, ICMP, TCP, UDP, DNS, DHCP, NTP, HTTP, HTTPS, FTP) : "
+    ).strip()
+
+    args.proto = proto
+
+    filtro_bpf = input(
+        "\nFiltro BPF, ex: tcp, udp, port 53, host 8.8.8.8 : "
+    ).strip()
+
+    args.filter = filtro_bpf
+
+    ip = input("\nFiltrar por IP : ").strip()
+    args.ip = ip
+
+    mac = input("\nFiltrar por MAC : ").strip()
+    args.mac = mac
+
+    log = input("\nGuardar log? : ").strip()
+    args.log = log
+
+    live = input("\nMostrar pacotes no terminal? [s/n] : ").strip().lower()
+    args.no_live = live == "n"
+
+    print("\n========== CONFIGURAÇÃO FINAL ==========")
+    print(f"Interface: {args.interface}")
+    print(f"Pacotes: {'infinito' if args.count == 0 else args.count}")
+    print(f"Protocolo: {args.proto if args.proto else 'Todos'}")
+    print(f"Filtro BPF: {args.filter if args.filter else 'Nenhum'}")
+    print(f"IP: {args.ip if args.ip else 'Nenhum'}")
+    print(f"MAC: {args.mac if args.mac else 'Nenhum'}")
+    print(f"Log: {args.log if args.log else 'Desativado'}")
+    print("========================================\n")
+
+
+perguntar_configuracao()
+
+
+estatisticas = Counter()
+registos_json = []
+
+
+def obter_timestamp():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def obter_macs(pacote):
+    if pacote.haslayer(Ether):
+        return pacote[Ether].src, pacote[Ether].dst
+    return "?", "?"
+
+
+def obter_ips(pacote):
+    if pacote.haslayer(IP):
+        return pacote[IP].src, pacote[IP].dst, "IPv4"
+    if pacote.haslayer(IPv6):
+        return pacote[IPv6].src, pacote[IPv6].dst, "IPv6"
+    return "?", "?", "N/A"
+
+
+def obter_payload_texto(pacote):
+    if pacote.haslayer(Raw):
+        try:
+            return pacote[Raw].load.decode("utf-8", errors="ignore").strip()
+        except Exception:
+            return ""
+    return ""
+
+
+def obter_dhcp_tipo(pacote):
+    if not pacote.haslayer(DHCP):
+        return "Desconhecido"
+
+    mapa = {
+        1: "Discover",
+        2: "Offer",
+        3: "Request",
+        4: "Decline",
+        5: "ACK",
+        6: "NAK",
+        7: "Release",
+        8: "Inform"
+    }
+
+    for opcao in pacote[DHCP].options:
+        if isinstance(opcao, tuple) and opcao[0] == "message-type":
+            valor = opcao[1]
+
+            if isinstance(valor, int):
+                return mapa.get(valor, f"Tipo {valor}")
+
+            if isinstance(valor, str):
+                return valor.capitalize()
+
+    return "Desconhecido"
+
+
+def obter_dns_info(pacote):
+    if not pacote.haslayer(DNS):
+        return "DNS"
+
+    dns = pacote[DNS]
+
+    if dns.qr == 0:
+        if pacote.haslayer(DNSQR):
+            try:
+                dominio = pacote[DNSQR].qname.decode(errors="ignore").rstrip(".")
+            except Exception:
+                dominio = str(pacote[DNSQR].qname)
+
+            return f"DNS Query: domínio={dominio}"
+
+        return "DNS Query"
+
+    else:
+        respostas = []
+
+        if dns.ancount > 0:
+            for i in range(dns.ancount):
+                try:
+                    rr = dns.an[i]
+                    if isinstance(rr, DNSRR):
+                        respostas.append(str(rr.rdata))
+                except Exception:
+                    pass
+
+        if respostas:
+            return f"DNS Response: respostas={', '.join(respostas[:3])}"
+
+        return "DNS Response"
+
+
+def obter_http_info(pacote):
+    texto = obter_payload_texto(pacote)
+
+    if not texto:
+        return ""
+
+    linhas = texto.splitlines()
+    primeira = linhas[0] if linhas else texto
+
+    metodos = ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"]
+
+    for metodo in metodos:
+        if primeira.startswith(metodo + " "):
+            return primeira
+
+    if primeira.startswith("HTTP/"):
+        return primeira
+
+    return ""
+
+
+def obter_ftp_info(pacote):
+    texto = obter_payload_texto(pacote)
+
+    if not texto:
+        return ""
+
+    linhas = texto.splitlines()
+    primeira = linhas[0] if linhas else texto
+
+    comandos = [
+        "USER", "PASS", "LIST", "RETR", "STOR", "PWD",
+        "CWD", "TYPE", "PASV", "PORT", "QUIT", "SYST", "FEAT"
+    ]
+
+    for cmd in comandos:
+        if primeira.upper().startswith(cmd):
+            return primeira
+
+    if len(primeira) >= 3 and primeira[:3].isdigit():
+        return primeira
+
+    return ""
+
+
+def classificar_tcp_flags(tcp):
+    flags = tcp.sprintf("%flags%")
+
+    if flags == "S":
+        return "TCP SYN - início de ligação"
+    if flags == "SA":
+        return "TCP SYN-ACK - resposta ao pedido de ligação"
+    if flags == "A":
+        return "TCP ACK - confirmação"
+    if "F" in flags:
+        return "TCP FIN - terminação de ligação"
+    if "R" in flags:
+        return "TCP RST - ligação reiniciada"
+    if "P" in flags and "A" in flags:
+        return "TCP PSH-ACK - envio de dados"
+
+    return f"TCP flags={flags}"
+
+
+def identificar_pacote(pacote):
+    timestamp = obter_timestamp()
+    tamanho = len(pacote)
+    mac_src, mac_dst = obter_macs(pacote)
+    ip_src, ip_dst, versao_ip = obter_ips(pacote)
+
+    protocolo = "Desconhecido"
+    resumo = "Protocolo desconhecido"
+    portas = ""
 
     if pacote.haslayer(ARP):
         arp = pacote[ARP]
@@ -221,212 +295,271 @@ def processar_pacote(pacote):
 
         if arp.op == 1:
             resumo = f"ARP Request: Quem tem {arp.pdst}? Diz a {arp.psrc}"
-        else:
+        elif arp.op == 2:
             resumo = f"ARP Reply: {arp.psrc} está em {arp.hwsrc}"
+        else:
+            resumo = f"ARP operação={arp.op}"
 
-    elif pacote.haslayer(IP):
-        ip_src = pacote[IP].src
-        ip_dst = pacote[IP].dst
+    elif pacote.haslayer(IP) or pacote.haslayer(IPv6):
 
         if pacote.haslayer(ICMP):
             icmp = pacote[ICMP]
             protocolo = "ICMP"
 
             if icmp.type == 8:
-                tipo = "Echo Request"
+                resumo = f"ICMP Echo Request: {ip_src} → {ip_dst}"
             elif icmp.type == 0:
-                tipo = "Echo Reply"
+                resumo = f"ICMP Echo Reply: {ip_src} → {ip_dst}"
             else:
-                tipo = f"Tipo {icmp.type}"
-
-            resumo = f"ICMP {tipo}: {ip_src} → {ip_dst}"
+                resumo = f"ICMP tipo={icmp.type}: {ip_src} → {ip_dst}"
 
         elif pacote.haslayer(TCP):
             tcp = pacote[TCP]
-            protocolo = "TCP"
-            flags = tcp.sprintf("%flags%")
-
-            if "S" in flags and "A" not in flags:
-                descricao = "SYN - início handshake"
-            elif "S" in flags and "A" in flags:
-                descricao = "SYN-ACK - resposta handshake"
-            elif "F" in flags:
-                descricao = "FIN - início fecho"
-            elif "R" in flags:
-                descricao = "RST - reset"
-            else:
-                descricao = flags
-
             sport = tcp.sport
             dport = tcp.dport
+            portas = f"{sport} → {dport}"
+
+            flags_info = classificar_tcp_flags(tcp)
 
             if sport == 80 or dport == 80:
                 protocolo = "HTTP"
-                resumo = f"HTTP :{sport} → :{dport}"
+                http_info = obter_http_info(pacote)
+
+                if http_info:
+                    resumo = f"HTTP: {ip_src}:{sport} → {ip_dst}:{dport} | {http_info}"
+                else:
+                    resumo = f"HTTP: {ip_src}:{sport} → {ip_dst}:{dport} | {flags_info}"
 
             elif sport == 443 or dport == 443:
                 protocolo = "HTTPS"
-                resumo = f"HTTPS :{sport} → :{dport}"
+                resumo = f"HTTPS: {ip_src}:{sport} → {ip_dst}:{dport} | tráfego cifrado | {flags_info}"
 
             elif sport == 21 or dport == 21:
                 protocolo = "FTP"
-                resumo = f"FTP :{sport} → :{dport}"
+                ftp_info = obter_ftp_info(pacote)
+
+                if ftp_info:
+                    resumo = f"FTP: {ip_src}:{sport} → {ip_dst}:{dport} | {ftp_info}"
+                else:
+                    resumo = f"FTP: {ip_src}:{sport} → {ip_dst}:{dport} | {flags_info}"
 
             else:
-                resumo = f"TCP {descricao} :{sport} → :{dport}"
+                protocolo = "TCP"
+                resumo = f"TCP: {ip_src}:{sport} → {ip_dst}:{dport} | {flags_info}"
 
         elif pacote.haslayer(UDP):
             udp = pacote[UDP]
             sport = udp.sport
             dport = udp.dport
+            portas = f"{sport} → {dport}"
 
-            if sport == 123 or dport == 123:
-                protocolo = "NTP"
-                resumo = "NTP sync"
+            if pacote.haslayer(BOOTP) and pacote.haslayer(DHCP):
+                protocolo = "DHCP"
+                tipo = obter_dhcp_tipo(pacote)
+                xid = pacote[BOOTP].xid
+                resumo = f"DHCP {tipo}: {ip_src}:{sport} → {ip_dst}:{dport} | xid={xid}"
 
-            elif sport == 53 or dport == 53:
+            elif pacote.haslayer(DNS) or sport == 53 or dport == 53:
                 protocolo = "DNS"
+                dns_info = obter_dns_info(pacote)
+                resumo = f"{dns_info}: {ip_src}:{sport} → {ip_dst}:{dport}"
 
-                if pacote.haslayer(DNS) and pacote[DNS].qd:
-                    dominio = pacote[DNS].qd.qname.decode(errors="ignore").rstrip(".")
-                    tipo = "Query" if pacote[DNS].qr == 0 else "Reply"
-                    resumo = f"DNS {tipo}: {dominio}"
-                else:
-                    resumo = "DNS"
+            elif sport == 123 or dport == 123:
+                protocolo = "NTP"
+                resumo = f"NTP: {ip_src}:{sport} → {ip_dst}:{dport} | sincronização temporal"
 
             elif sport == 5353 or dport == 5353:
                 protocolo = "mDNS"
-
-                if pacote.haslayer(DNS) and pacote[DNS].qd:
-                    dominio = pacote[DNS].qd.qname.decode(errors="ignore").rstrip(".")
-                    resumo = f"mDNS Query: {dominio}"
-                else:
-                    resumo = "mDNS"
-
-            elif sport in (67, 68) or dport in (67, 68):
-                protocolo = "DHCP"
-
-                tipos = {
-                    1: "Discover",
-                    2: "Offer",
-                    3: "Request",
-                    5: "ACK",
-                    6: "NAK"
-                }
-
-                tipo_dhcp = "?"
-
-                if pacote.haslayer(DHCP):
-                    for opt in pacote[DHCP].options:
-                        if isinstance(opt, tuple) and opt[0] == "message-type":
-                            tipo_dhcp = tipos.get(opt[1], str(opt[1]))
-                            break
-
-                resumo = f"DHCP {tipo_dhcp}"
+                resumo = f"mDNS: {ip_src}:{sport} → {ip_dst}:{dport} | DNS multicast local"
 
             else:
                 protocolo = "UDP"
-                resumo = f"UDP :{sport} → :{dport}"
+                resumo = f"UDP: {ip_src}:{sport} → {ip_dst}:{dport}"
 
         else:
-            protocolo = "IPv4"
-            resumo = f"IPv4 protocolo desconhecido ({pacote[IP].proto})"
+            protocolo = versao_ip
+            resumo = f"{versao_ip}: {ip_src} → {ip_dst}"
 
-    elif pacote.haslayer(IPv6):
-        ip6 = pacote[IPv6]
-        ip_src = ip6.src
-        ip_dst = ip6.dst
-        protocolo = "IPv6"
-        resumo = "IPv6"
+    registo = {
+        "timestamp": timestamp,
+        "interface": args.interface,
+        "protocolo": protocolo,
+        "mac_src": mac_src,
+        "mac_dst": mac_dst,
+        "ip_src": ip_src,
+        "ip_dst": ip_dst,
+        "portas": portas,
+        "tamanho": tamanho,
+        "resumo": resumo
+    }
 
-    global total_pacotes
-    total_pacotes += 1
-    estatisticas[protocolo] += 1
+    return registo
 
-    linha_csv = [
-        timestamp,
-        args.interface,
-        tamanho,
-        protocolo,
-        mac_src,
-        mac_dst,
-        ip_src,
-        ip_dst,
-        resumo
-    ]
 
-    pacotes_guardados.append(linha_csv)
+def aplicar_filtros(pacote):
+    if args.proto:
+        proto = args.proto.upper()
 
-    cor = CORES.get(protocolo, CORES["?"])
+        registo_temp = identificar_pacote(pacote)
 
-    print(
-        f"{cor}{BOLD}[{timestamp}] [{args.interface}] {tamanho:>5}B"
-        f" | {protocolo:<8}{RESET}"
-        f"{cor}"
-        f" | {mac_src} → {mac_dst}"
-        f" | {ip_src} → {ip_dst}"
-        f" | {resumo}"
-        f"{RESET}"
+        if registo_temp["protocolo"].upper() != proto:
+            if proto == "IPv4" and pacote.haslayer(IP):
+                pass
+            elif proto == "IPv6" and pacote.haslayer(IPv6):
+                pass
+            else:
+                return False
+
+    if args.ip:
+        if pacote.haslayer(IP):
+            if pacote[IP].src != args.ip and pacote[IP].dst != args.ip:
+                return False
+        elif pacote.haslayer(IPv6):
+            if pacote[IPv6].src != args.ip and pacote[IPv6].dst != args.ip:
+                return False
+        else:
+            return False
+
+    if args.mac:
+        if not pacote.haslayer(Ether):
+            return False
+
+        mac_filtro = args.mac.lower()
+
+        if pacote[Ether].src.lower() != mac_filtro and pacote[Ether].dst.lower() != mac_filtro:
+            return False
+
+    return True
+
+
+def linha_formatada(registo):
+    protocolo = registo['protocolo']
+    cor = CORES_PROTOCOLO.get(protocolo, CORES_PROTOCOLO["Desconhecido"])
+    
+    return (
+        f"{cor}[{registo['timestamp']}] "
+        f"[{registo['interface']}] "
+        f"{registo['tamanho']}B | "
+        f"{registo['protocolo']} | "
+        f"{registo['mac_src']} → {registo['mac_dst']} | "
+        f"{registo['resumo']}{COR_RESET}"
     )
 
 
-def processar_com_filtro(pacote):
-    if aplicar_filtros(pacote):
-        processar_pacote(pacote)
+def iniciar_log_csv():
+    if not args.log:
+        return
+
+    if args.log.endswith(".csv"):
+        ficheiro_existe = os.path.exists(args.log)
+
+        with open(args.log, "a", newline="", encoding="utf-8") as f:
+            campos = [
+                "timestamp", "interface", "protocolo",
+                "mac_src", "mac_dst",
+                "ip_src", "ip_dst",
+                "portas", "tamanho", "resumo"
+            ]
+
+            writer = csv.DictWriter(f, fieldnames=campos)
+
+            if not ficheiro_existe:
+                writer.writeheader()
 
 
-try:
-    print(f"A capturar em '{args.interface}'")
-    sniff(
-        iface=args.interface,
-        prn=processar_com_filtro,
-        count=args.count,
-        filter=args.filter,
-        store=False
-    )
+def guardar_log(registo):
+    if not args.log:
+        return
 
-except KeyboardInterrupt:
-    print("\nCaptura interrompida pelo utilizador.")
+    if args.log.endswith(".csv"):
+        with open(args.log, "a", newline="", encoding="utf-8") as f:
+            campos = [
+                "timestamp", "interface", "protocolo",
+                "mac_src", "mac_dst",
+                "ip_src", "ip_dst",
+                "portas", "tamanho", "resumo"
+            ]
 
-finally:
-    hora_fim = datetime.now()
-    duracao = hora_fim - hora_inicio
+            writer = csv.DictWriter(f, fieldnames=campos)
+            writer.writerow(registo)
 
-    print("\n" + "=" * 45)
-    print(" RESUMO ESTATISTICO DA CAPTURA")
-    print("=" * 45)
-    print(f" Duracao da captura           : {str(duracao).split('.')[0]}")
-    print(f" Total de pacotes processados : {total_pacotes}")
-    print("-" * 45)
+    elif args.log.endswith(".json"):
+        registos_json.append(registo)
 
-    if total_pacotes > 0:
-        print(" Distribuicao por protocolo:")
+    else:
+        with open(args.log, "a", encoding="utf-8") as f:
+            f.write(linha_formatada(registo) + "\n")
 
-        for proto, quantidade in estatisticas.most_common():
-            percentagem = (quantidade / total_pacotes) * 100
-            cor = CORES.get(proto, CORES["?"])
 
-            print(
-                f"  {cor}{BOLD}- {proto:<8}{RESET}"
-                f"{cor}: {quantidade:>5} pacotes "
-                f"({percentagem:>5.1f}%){RESET}"
-            )
+def guardar_json_final():
+    if args.log and args.log.endswith(".json"):
+        with open(args.log, "w", encoding="utf-8") as f:
+            json.dump(registos_json, f, indent=4, ensure_ascii=False)
 
-    print("=" * 45 + "\n")
 
-    if args.log:
-        guardar_csv(args.log)
+def processar_pacote(pacote):
+    if not aplicar_filtros(pacote):
+        return
 
-    elif total_pacotes > 0:
-        resposta = input("Queres guardar os resultados num ficheiro CSV? [s/n]: ").strip().lower()
+    registo = identificar_pacote(pacote)
 
-        if resposta in ["s", "sim", "y", "yes"]:
-            nome = input("Nome do ficheiro CSV: ").strip()
+    estatisticas[registo["protocolo"]] += 1
 
-            if nome == "":
-                nome = "captura_sniffer.csv"
+    if not args.no_live:
+        print(linha_formatada(registo))
 
-            guardar_csv(nome)
+    guardar_log(registo)
 
-        else:
-            print("Resultados não foram guardados.")
+
+def mostrar_resumo_final():
+    print("\n========== RESUMO ESTATÍSTICO DA CAPTURA ==========")
+    print(f"Interface: {args.interface}")
+    print(f"Total de pacotes processados: {sum(estatisticas.values())}")
+
+    print("\nDistribuição por protocolo:")
+    for protocolo, quantidade in estatisticas.most_common():
+        print(f"  {protocolo}: {quantidade}")
+
+    print("===================================================")
+
+
+def main():
+    iniciar_log_csv()
+
+    print("========== Packet Sniffer RC-TP2 ==========")
+    print(f"Interface: {args.interface}")
+    print(f"Filtro BPF: {args.filter if args.filter else 'Nenhum'}")
+    print(f"Filtro protocolo: {args.proto if args.proto else 'Nenhum'}")
+    print(f"Filtro IP: {args.ip if args.ip else 'Nenhum'}")
+    print(f"Filtro MAC: {args.mac if args.mac else 'Nenhum'}")
+    print(f"Log: {args.log if args.log else 'Desativado'}")
+    print("A capturar... usa CTRL+C para parar.")
+    print("===========================================\n")
+
+    try:
+        sniff(
+            iface=args.interface,
+            prn=processar_pacote,
+            count=args.count,
+            filter=args.filter,
+            store=False
+        )
+
+    except KeyboardInterrupt:
+        print("\nCaptura interrompida pelo utilizador.")
+
+    except PermissionError:
+        print("\nErro: sem permissões.")
+        print("Experimenta correr com sudo:")
+        print(f"sudo python3 sniffer.py -i {args.interface}")
+
+    except Exception as e:
+        print(f"\nErro durante a captura: {e}")
+
+    finally:
+        guardar_json_final()
+        mostrar_resumo_final()
+
+
+if __name__ == "__main__":
+    main()
