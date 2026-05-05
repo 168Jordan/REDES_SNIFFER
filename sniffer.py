@@ -54,9 +54,6 @@ parser.add_argument("--mac", default="",
 parser.add_argument("--log", default="",
                     help="Guardar captura em ficheiro: .txt, .csv ou .json")
 
-parser.add_argument("--no-live", action="store_true",
-                    help="Não imprimir pacotes na consola, apenas guardar em log")
-
 args = parser.parse_args()
 
 
@@ -101,11 +98,11 @@ def perguntar_configuracao():
     mac = input("\nFiltrar por MAC : ").strip()
     args.mac = mac
 
-    log = input("\nGuardar log? : ").strip()
-    args.log = log
-
-    live = input("\nMostrar pacotes no terminal? [s/n] : ").strip().lower()
-    args.no_live = live == "n"
+    guardar_log = input("\nGuardar log? [s/n] : ").strip().lower()
+    if guardar_log == "s":
+        args.log = input("Nome do ficheiro (ex: captura.csv, captura.json, captura.txt) : ").strip()
+    else:
+        args.log = ""
 
     print("\n========== CONFIGURAÇÃO FINAL ==========")
     print(f"Interface: {args.interface}")
@@ -115,6 +112,7 @@ def perguntar_configuracao():
     print(f"IP: {args.ip if args.ip else 'Nenhum'}")
     print(f"MAC: {args.mac if args.mac else 'Nenhum'}")
     print(f"Log: {args.log if args.log else 'Desativado'}")
+    print(f"Mostrar no terminal: Sim")
     print("========================================\n")
 
 
@@ -123,6 +121,7 @@ perguntar_configuracao()
 
 estatisticas = Counter()
 registos_json = []
+tempo_inicio = None
 
 
 def obter_timestamp():
@@ -505,25 +504,36 @@ def processar_pacote(pacote):
 
     estatisticas[registo["protocolo"]] += 1
 
-    if not args.no_live:
-        print(linha_formatada(registo))
-
+    print(linha_formatada(registo))
     guardar_log(registo)
 
 
 def mostrar_resumo_final():
     print("\n========== RESUMO ESTATÍSTICO DA CAPTURA ==========")
     print(f"Interface: {args.interface}")
-    print(f"Total de pacotes processados: {sum(estatisticas.values())}")
+    
+    total_pacotes = sum(estatisticas.values())
+    print(f"Total de pacotes processados: {total_pacotes}")
+    
+    if tempo_inicio:
+        tempo_decorrido = datetime.now() - tempo_inicio
+        segundos = tempo_decorrido.total_seconds()
+        minutos = segundos // 60
+        segundos = segundos % 60
+        print(f"Tempo de captura: {int(minutos)}m {int(segundos)}s")
 
     print("\nDistribuição por protocolo:")
     for protocolo, quantidade in estatisticas.most_common():
-        print(f"  {protocolo}: {quantidade}")
+        percentagem = (quantidade / total_pacotes * 100) if total_pacotes > 0 else 0
+        print(f"  {protocolo}: {quantidade} ({percentagem:.1f}%)")
 
     print("===================================================")
 
 
 def main():
+    global tempo_inicio
+    
+    tempo_inicio = datetime.now()
     iniciar_log_csv()
 
     print("========== Packet Sniffer RC-TP2 ==========")
