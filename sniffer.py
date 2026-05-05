@@ -116,7 +116,10 @@ def perguntar_configuracao():
     print("========================================\n")
 
 
-perguntar_configuracao()
+argumentos_passados = any([args.filter, args.proto, args.ip, args.mac, args.log, args.count > 0, args.interface != "eth0"])
+
+if not argumentos_passados:
+    perguntar_configuracao()
 
 
 estatisticas = Counter()

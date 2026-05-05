@@ -1,62 +1,106 @@
-# REDES_SNIFFER
-Passo 1 — Argparse (interface + filtros)
-O enunciado diz que tens de permitir selecionar a interface e filtrar tráfego. Agora está tudo hardcoded.
-O que fazer:
+# Packet Sniffer em Python (RC-TP2)
 
-Adicionar argparse para receber -i (interface), -c (count), --proto, --ip, --mac, -f (filtro BPF)
-Aplicar os filtros dentro do processar_pacote
-FEITO 168
+- José Ornelas a111790
+- Tiago Carvalhido a110491
+- Tiago Pereira a112042
 
-Passo 2 — Mostrar a interface no output
-O enunciado pede que o output inclua a interface onde o pacote foi capturado. Agora não mostras isso.
-O que fazer:
+---
 
-Adicionar o nome da interface em cada linha impressa
-FEITO 168
+Este projeto consiste num Packet Sniffer de rede desenvolvido em Python, utilizando a biblioteca Scapy. A ferramenta permite capturar, filtrar, dissecar e registar pacotes de rede em tempo real, suportando ambientes emulados (CORE) e interfaces de rede físicas.
 
-Passo 3 — Modo log (ficheiro)
-O enunciado pede modo live (consola) e modo log (ficheiro), podendo estar os dois ativos ao mesmo tempo.
-O que fazer:
+## 1. Dependências e Instalação
+Para executar este sniffer, é necessário ter o Python 3 instalado, bem como a biblioteca de dissecação de pacotes scapy.
 
-Adicionar argumento --log captura.csv
-Guardar cada pacote em CSV com os mesmos campos do print
+Instalação da biblioteca no Linux:
+Podes instalar o Scapy globalmente via gestor de pacotes (recomendado para o emulador CORE):
 
+```bash
+sudo apt update
+sudo apt install python3-scapy
+```
 
-Passo 4 — Mais protocolos
-O enunciado pede identificação de protocolos das aulas teóricas. Os que tens são básicos.
-O que fazer:
+Ou através do gestor de pacotes do Python (pip):
 
-HTTP — TCP porta 80 (identificar GET, POST, etc.)
-HTTPS — TCP porta 443
-FTP — TCP porta 21
-DHCP — já tens deteção mas sem detalhes (Discover, Offer, Request, ACK)
-DNS — já tens mas sem mostrar o domínio pedido
+```bash
+pip3 install scapy
+```
 
+## 2. Modo de Execução
+Como a placa de rede precisa de ser colocada em modo promíscuo para capturar o tráfego, o script deve ser executado com privilégios de administrador (sudo).
 
-Passo 5 — Detalhe nos protocolos existentes
-O enunciado pede "resumo do conteúdo" mais rico e identificação das trocas características.
-O que fazer:
+### Opção A: Menu Interativo
+Se executares o script sem argumentos, ser-te-á apresentado um menu passo a passo onde podes escolher a interface a partir de uma lista e configurar todos os filtros de forma guiada:
 
-DNS: mostrar o domínio (pacote[DNS].qd.qname)
-TCP: identificar handshake (SYN → SYN-ACK → ACK) e fecho (FIN)
-DHCP: mostrar tipo (Discover/Offer/Request/ACK)
+```bash
+sudo python3 sniffer.py
+```
 
+### Opção B: Linha de Comandos (CLI)
+Para automação ou execuções rápidas, podes passar os argumentos diretamente. Para ver o menu de ajuda com todos os comandos disponíveis:
 
-Passo 6 — Topologia no CORE (Parte A)
-O enunciado pede uma topologia no emulador CORE com o sniffer a correr num nó.
-O que fazer:
+```bash
+python3 sniffer.py -h
+```
 
-Criar topologia: 2 PCs + 1 router
-Correr o sniffer num PC
-Fazer ping, netcat, HTTP entre os outros nós
-Capturar e guardar em ficheiro
+## 3. Filtros e Parâmetros 
 
+### Controlo de Captura e Interface
+- -i ou --interface: Define a placa de rede a escutar (ex: eth0, wlan0). Se omitido, assume eth0.
 
-Passo 7 — README completo
-O enunciado lista explicitamente o que o README deve ter.
-O que fazer:
+- -c ou --count: Define um limite exato de pacotes a capturar. O valor 0 (padrão) significa captura infinita até à interrupção (Ctrl+C).
 
-Dependências
-Como selecionar interface
-Como ativar filtros
-Como correr no CORE e no PC
+- --log: Especifica o nome do ficheiro para onde os dados serão exportados (ex: captura.csv, dados.json, log.txt).
+
+### Filtros de Baixo Nível (Kernel)
+- -f ou --filter: Permite aplicar filtros nativos BPF (Berkeley Packet Filter), que operam diretamente no kernel para máxima performance.
+
+    - Exemplo: -f "tcp port 80 or icmp"
+
+### Filtros de Aplicação (Implementados no Código)
+- --proto: Isola um protocolo específico. Suporta: ARP, IPv4, IPv6, ICMP, TCP, UDP, DNS, DHCP, NTP, HTTP, HTTPS, FTP, mDNS.
+
+- --ip: Filtra pacotes que tenham um determinado endereço IP como origem ou destino.
+
+- --mac: Filtra pacotes pela sua origem ou destino físico (Endereço MAC).
+
+## 4. Como correr no Emulador CORE
+No ambiente esterilizado do emulador CORE, as interfaces assumem nomes genéricos. Como os nós do CORE já funcionam como root, não é necessário usar sudo.
+
+1. Abre o terminal do nó desejado (ex: n1).
+
+2. Confirma o nome da interface com o comando ip addr.
+
+3. Executa o sniffer:
+
+```bash
+# Iniciar o menu interativo
+python3 sniffer.py
+
+# Ou iniciar diretamente via CLI filtrando por ICMP e exportando para JSON
+python3 sniffer.py -i eth0 --proto ICMP --log log_core.json
+```
+
+4. Abre o terminal de outro nó (ex: n2) e gera tráfego para testar a captura (ex: ping 10.0.0.1 ou wget [http://10.0.0.1](http://10.0.0.1)).
+
+### 5. Como correr no PC Real (Interface Física)
+Numa máquina física, irás capturar o tráfego real da tua rede local. É estritamente necessário usar sudo.
+
+1. Abre o terminal do teu sistema operativo Linux.
+
+2. Descobre o nome da tua placa de rede Wi-Fi ou Ethernet usando o comando ip a (normalmente chama-se wlan0, wlp2s0, enp3s0, etc.).
+
+3. Executa o sniffer apontando para essa interface:
+
+**Exemplos:**
+
+```bash
+# Captura de todo o tráfego na placa Wi-Fi
+sudo python3 sniffer.py -i wlp2s0
+
+# Capturar tráfego de navegação Web limitando a 100 pacotes
+sudo python3 sniffer.py -i wlp2s0 -f "tcp port 80 or tcp port 443" -c 100
+
+# Descobrir dispositivos a falar em Multicast DNS na rede doméstica
+sudo python3 sniffer.py -i wlp2s0 --proto MDNS
+Pressiona Ctrl+C para parar a captura. O sniffer irá imprimir um resumo estatístico final no ecrã e guardar o ficheiro CSV (se solicitado).
+```
