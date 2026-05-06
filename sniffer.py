@@ -119,6 +119,7 @@ estatisticas_camadas = {
 total_processados = 0
 registos_json = []
 tempo_inicio = None
+pacotes_validados = 0
 
 # Variáveis para o Rastreamento de Estado (State Tracking)
 contador_pacotes = 0
@@ -452,7 +453,7 @@ def guardar_json_final():
 # ==========================================
 # CALLBACK E ENCERRAMENTO
 # ==========================================
-def processar_pacote(pacote):
+def processar_pacote(pacote):    
     if not aplicar_filtros(pacote):
         return
 
@@ -476,6 +477,10 @@ def processar_pacote(pacote):
     print(linha_formatada(registo))
     guardar_log(registo)
 
+def parar_captura(pacote):
+    if args.count > 0 and total_processados >= args.count:
+        return True
+    return False
 
 def mostrar_resumo_final():
     COR_TITULO = "\033[1;36m"
@@ -528,8 +533,8 @@ def main():
         sniff(
             iface=args.interface,
             prn=processar_pacote,
-            count=args.count,
             filter=args.filter,
+            stop_filter = parar_captura,
             store=False
         )
 
