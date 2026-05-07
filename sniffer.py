@@ -114,7 +114,7 @@ estatisticas_camadas = {
     "Camada 2 (Ligação de Dados)": Counter(),
     "Camada 3 (Rede)": Counter(),
     "Camada 4 (Transporte)": Counter(),
-    "Camada 7 (Aplicação)": Counter()
+    "Camada 5 (Aplicação)": Counter()
 }
 total_processados = 0
 registos_json = []
@@ -246,10 +246,7 @@ def identificar_pacote(pacote):
     if pacote.haslayer(ARP):
         arp = pacote[ARP]
         protocolo = "ARP"
-
-        mac_src = "?"
-        mac_dst = "?"
-
+        
         ip_src = arp.psrc
         ip_dst = arp.pdst
 
@@ -472,7 +469,7 @@ def processar_pacote(pacote):
         elif c in ["TCP", "UDP"]: 
             estatisticas_camadas["Camada 4 (Transporte)"][c] += 1
         elif c not in ["Desconhecido", ""]: 
-            estatisticas_camadas["Camada 7 (Aplicação)"][c] += 1
+            estatisticas_camadas["Camada 5 (Aplicação)"][c] += 1
 
     print(linha_formatada(registo))
     guardar_log(registo)
